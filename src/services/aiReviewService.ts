@@ -1,6 +1,8 @@
 import type { ReviewResult, HandoffPack } from '../types';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3001';
+const API_BASE_URL = (
+  import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3001/api'
+).replace(/\/$/, '');
 
 export class AiServiceError extends Error {
   status?: number;
@@ -12,11 +14,16 @@ export class AiServiceError extends Error {
   }
 }
 
-async function postJson<T>(path: string, body: unknown): Promise<T> {
+function buildUrl(endpoint: string): string {
+  const normalizedEndpoint = endpoint.replace(/^\//, '');
+  return `${API_BASE_URL}/${normalizedEndpoint}`;
+}
+
+async function postJson<T>(endpoint: string, body: unknown): Promise<T> {
   let response: Response;
 
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
+    response = await fetch(buildUrl(endpoint), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -42,21 +49,21 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
 }
 
 export async function runReviewBoardWithAI(analysisInput: string): Promise<ReviewResult> {
-  return postJson<ReviewResult>('/api/review-board', { analysisInput });
+  return postJson<ReviewResult>('review-board', { analysisInput });
 }
 
 export async function generateHandoffPackWithAI(
   analysisInput: string,
   reviewResult: ReviewResult,
 ): Promise<HandoffPack> {
-  return postJson<HandoffPack>('/api/handoff-pack', { analysisInput, reviewResult });
+  return postJson<HandoffPack>('handoff-pack', { analysisInput, reviewResult });
 }
 
 export async function generateFigmaPromptWithAI(
   analysisInput: string,
   reviewResult: ReviewResult,
 ): Promise<string> {
-  const result = await postJson<{ prompt: string }>('/api/figma-prompt', {
+  const result = await postJson<{ prompt: string }>('figma-prompt', {
     analysisInput,
     reviewResult,
   });
