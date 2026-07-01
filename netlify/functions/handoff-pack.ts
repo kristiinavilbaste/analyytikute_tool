@@ -1,11 +1,11 @@
-import { createPostHandler } from './_shared/handler.js';
-import { ApiError } from '../../shared/apiErrors.js';
+import { createPostHandler } from './_shared/handler';
+import { ApiError } from './_shared/apiErrors';
 import {
   HANDOFF_SYSTEM_PROMPT,
   buildHandoffUserPrompt,
-} from '../../shared/prompts/handoffPrompt.js';
-import { createJsonCompletion, parseJsonResponse } from '../../shared/openaiHelpers.js';
-import { normalizeHandoffPack } from '../../shared/normalizeResponses.js';
+} from './_shared/prompts/handoffPrompt';
+import { createJsonCompletion, parseJsonResponse } from './_shared/openaiHelpers';
+import { normalizeHandoffPack } from './_shared/normalizeResponses';
 
 export const handler = createPostHandler(async (body) => {
   const analysisInput = String(body.analysisInput ?? '').trim();

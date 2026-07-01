@@ -1,5 +1,5 @@
 import type { Handler } from '@netlify/functions';
-import { getErrorMessage, getErrorStatusCode } from '../../shared/apiErrors.js';
+import { getErrorMessage, getErrorStatusCode } from './apiErrors';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',

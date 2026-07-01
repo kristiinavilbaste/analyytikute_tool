@@ -1,11 +1,11 @@
-import { createPostHandler } from './_shared/handler.js';
-import { ApiError } from '../../shared/apiErrors.js';
+import { createPostHandler } from './_shared/handler';
+import { ApiError } from './_shared/apiErrors';
 import {
   FIGMA_SYSTEM_PROMPT,
   buildFigmaUserPrompt,
-} from '../../shared/prompts/figmaPrompt.js';
-import { createJsonCompletion, parseJsonResponse } from '../../shared/openaiHelpers.js';
-import { normalizeFigmaPrompt } from '../../shared/normalizeResponses.js';
+} from './_shared/prompts/figmaPrompt';
+import { createJsonCompletion, parseJsonResponse } from './_shared/openaiHelpers';
+import { normalizeFigmaPrompt } from './_shared/normalizeResponses';
 
 export const handler = createPostHandler(async (body) => {
   const analysisInput = String(body.analysisInput ?? '').trim();
