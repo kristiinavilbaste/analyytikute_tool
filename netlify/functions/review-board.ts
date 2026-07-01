@@ -2,60 +2,42 @@ import type { Handler } from '@netlify/functions';
 import OpenAI from 'openai';
 import { ApiError, getErrorMessage, getErrorStatusCode } from './_shared/apiErrors';
 import {
+  createFallbackCompactReview,
   mapCompactReviewToResult,
-  type CompactReviewResponse,
+  parseCompactReviewJson,
 } from './_shared/compactReviewMapper';
-import { buildQualityCategoryPromptSection } from './_shared/constants/qualityGateCategories';
 
-const TIMEOUT_MS = 20_000;
-const MAX_OUTPUT_TOKENS = 1800;
+const TIMEOUT_MS = 25_000;
+const MAX_OUTPUT_TOKENS = 700;
+const MAX_INPUT_CHARS = 4000;
 const DEFAULT_MODEL = 'gpt-4.1-mini';
 
 const SYSTEM_PROMPT =
-  'You are an expert business/system analysis reviewer. Return valid compact JSON only. No markdown. Each quality category must have unique rationale, mainGap and recommendation. Do not reuse the same text across categories.';
+  'You are an expert business/system analysis reviewer. Return valid compact JSON only. No markdown. Keep every string to one short sentence.';
 
 function buildUserPrompt(analysisInput: string): string {
   const trimmedInput =
-    analysisInput.length > 10_000
-      ? `${analysisInput.slice(0, 10_000)}\n\n[Input truncated for review.]`
+    analysisInput.length > MAX_INPUT_CHARS
+      ? `${analysisInput.slice(0, MAX_INPUT_CHARS)}\n\n[Input truncated for review.]`
       : analysisInput;
 
-  return `Review the provided analysis and return compact JSON only.
+  return `Review the analysis and return compact JSON only.
 
 Return ONLY this JSON structure:
 {
   "qualityScore": number,
   "readinessStatus": string,
   "executiveSummary": string,
-  "qualityCategories": [
-    {
-      "category": string,
-      "score": number,
-      "rationale": string,
-      "mainGap": string,
-      "recommendation": string
-    }
-  ],
-  "issues": [
-    { "title": string, "severity": "High" | "Medium" | "Low", "description": string }
-  ],
-  "risks": [
-    { "title": string, "severity": "High" | "Medium" | "Low", "description": string }
-  ],
+  "topIssues": string[],
+  "topRisks": string[],
   "hiddenAssumptions": string[],
   "questions": string[],
   "recommendations": string[]
 }
 
-qualityCategories must contain exactly 10 items, one for each category below, in this order, using the exact category names.
-Each qualityCategories[].score must be 0-10 only. qualityScore is 0-100 overall only.
-Do not reuse the same rationale, mainGap or recommendation across categories.
-Keep each category text short but specific to that category only.
-
-Required categories:
-${buildQualityCategoryPromptSection()}
-
-Maximum items: issues 5, risks 5, hiddenAssumptions 5, questions 5, recommendations 5.
+Limits: topIssues max 5, topRisks max 5, hiddenAssumptions max 5, questions max 5, recommendations max 5.
+Each array item must be one short sentence only.
+qualityScore is 0-100 overall.
 readinessStatus must be one of: Not ready, Needs clarification, Ready for refinement, Ready for development.
 
 ANALYSIS:
@@ -95,21 +77,6 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
         reject(error);
       });
   });
-}
-
-function parseCompactReviewJson(content: string): CompactReviewResponse {
-  const trimmed = content.trim();
-  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)```$/i);
-  const jsonText = fenced ? fenced[1].trim() : trimmed;
-
-  try {
-    return JSON.parse(jsonText) as CompactReviewResponse;
-  } catch {
-    throw new ApiError(
-      `AI response could not be parsed. Raw response (first 500 chars): ${content.slice(0, 500)}`,
-      500,
-    );
-  }
 }
 
 export const handler: Handler = async (event) => {
@@ -178,12 +145,16 @@ export const handler: Handler = async (event) => {
     console.log('OpenAI response received');
 
     const content = response.choices[0]?.message?.content?.trim() ?? '';
-    if (!content) {
-      throw new ApiError('OpenAI returned an empty response.', 500);
+    console.log('raw output first 200 chars:', content.slice(0, 200));
+
+    const parsed = content ? parseCompactReviewJson(content) : null;
+    const compact = parsed ?? createFallbackCompactReview();
+
+    if (!parsed) {
+      console.log('AI JSON parse failed, using fallback review object');
     }
 
-    const parsed = parseCompactReviewJson(content);
-    const result = mapCompactReviewToResult(parsed);
+    const result = mapCompactReviewToResult(compact);
 
     console.log('returning response');
     return jsonResponse(200, result);
