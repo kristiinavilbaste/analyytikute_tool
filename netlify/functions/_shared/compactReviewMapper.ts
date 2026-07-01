@@ -112,6 +112,7 @@ const CATEGORY_EVALUATION: Record<string, CategoryEvaluationTemplate> = {
   },
 };
 
+function asReadinessStatus(score: number, provided?: string): ReadinessStatus {
   const normalized = String(provided ?? '').toLowerCase();
   const map: Record<string, ReadinessStatus> = {
     'not ready': 'Not ready',
