@@ -1,0 +1,93 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'DM Sans', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  --color-ng-red: #ff3b30;
+  --color-ng-red-dark: #d92d20;
+  --color-ng-red-soft: #fff1ef;
+  --color-ng-red-border: #ffdad5;
+  --color-ng-black: #101010;
+  --color-ng-dark: #1a1a1a;
+  --color-ng-text: #242424;
+  --color-ng-muted: #6b7280;
+  --color-ng-border: #e7e7e7;
+  --color-ng-bg: #ffffff;
+  --color-ng-bg-soft: #f8f7f5;
+  --color-ng-yellow: #ffc83d;
+  --color-ng-green: #16a34a;
+  --color-ng-orange: #f97316;
+  --color-ng-orange-soft: #fff7ed;
+  --color-ng-yellow-soft: #fffbeb;
+  --color-ng-green-soft: #f0fdf4;
+
+  --color-status-not-ready: #ff3b30;
+  --color-status-clarification: #f97316;
+  --color-status-refinement: #ffc83d;
+  --color-status-development: #16a34a;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: var(--color-ng-bg-soft);
+  color: var(--color-ng-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-ring {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.4s ease-out forwards;
+}
+
+.animate-pulse-ring {
+  animation: pulse-ring 2s ease-in-out infinite;
+}
+
+/* Net Group button styles */
+.btn-primary {
+  @apply rounded-lg bg-ng-red px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-ng-red-dark focus:outline-none focus:ring-2 focus:ring-ng-red/30 disabled:opacity-50;
+}
+
+.btn-secondary {
+  @apply rounded-lg border border-ng-red bg-white px-5 py-2.5 text-sm font-semibold text-ng-red transition hover:bg-ng-red-soft focus:outline-none focus:ring-2 focus:ring-ng-red/20 disabled:opacity-50;
+}
+
+.btn-neutral {
+  @apply rounded-lg border border-ng-border bg-white px-5 py-2.5 text-sm font-medium text-ng-text transition hover:bg-ng-bg-soft focus:outline-none focus:ring-2 focus:ring-ng-border disabled:opacity-50;
+}
+
+/* Editorial card */
+.ng-card {
+  @apply rounded-2xl border border-ng-border bg-ng-bg shadow-sm;
+}
+
+/* Section marker accent */
+.ng-section-title {
+  @apply flex items-center gap-2 font-semibold text-ng-black;
+}
+
+.ng-asterisk {
+  @apply text-ng-red font-bold leading-none;
+}
