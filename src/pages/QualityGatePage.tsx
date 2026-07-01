@@ -4,30 +4,46 @@ import { EmptyState } from '../components/EmptyState';
 import { StatusBadge } from '../components/StatusBadge';
 import { TextScoreDisplay } from '../components/ScoreCard';
 import { PageHeader } from '../components/PageHeader';
+import { normalizeQualityCategories } from '../data/qualityGateCategories';
 import type { QualityCategory } from '../types';
+import {
+  normalizeCategoryScore,
+  formatScore,
+  getCategoryScoreColor,
+  getCategoryProgressWidth,
+} from '../utils/qualityScoreUtils';
 
 function CategoryScoreBar({ score }: { score: number }) {
-  const color =
-    score >= 7 ? 'bg-ng-green' : score >= 5 ? 'bg-ng-orange' : 'bg-ng-red';
+  const normalizedScore = normalizeCategoryScore(score);
+  const colorKey = getCategoryScoreColor(normalizedScore);
+  const colorClass =
+    colorKey === 'green' ? 'bg-ng-green' : colorKey === 'orange' ? 'bg-ng-orange' : 'bg-ng-red';
 
   return (
     <div className="flex items-center gap-3">
       <div className="h-2 flex-1 overflow-hidden rounded-full bg-ng-bg-soft">
-        <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${score * 10}%` }} />
+        <div
+          className={`h-full rounded-full transition-all ${colorClass}`}
+          style={{ width: `${getCategoryProgressWidth(normalizedScore)}%` }}
+        />
       </div>
-      <span className={`w-12 text-right text-sm font-bold tabular-nums ${score < 5 ? 'text-ng-red' : 'text-ng-black'}`}>
-        {score}/10
+      <span
+        className={`w-14 text-right text-sm font-bold tabular-nums ${normalizedScore < 5 ? 'text-ng-red' : 'text-ng-black'}`}
+      >
+        {formatScore(normalizedScore)}
       </span>
     </div>
   );
 }
 
 function QualityCategoryCard({ category }: { category: QualityCategory }) {
+  const normalizedScore = normalizeCategoryScore(category.score);
+
   return (
     <div className="rounded-2xl border border-ng-border bg-ng-bg p-5">
       <h3 className="font-bold text-ng-black">{category.name}</h3>
       <div className="mt-3">
-        <CategoryScoreBar score={category.score} />
+        <CategoryScoreBar score={normalizedScore} />
       </div>
       <div className="mt-4 space-y-3 text-sm">
         <div>
@@ -56,6 +72,8 @@ export function QualityGatePage() {
     );
   }
 
+  const qualityCategories = normalizeQualityCategories(reviewResult.qualityCategories);
+
   return (
     <div className="space-y-10">
       <PageHeader
@@ -69,7 +87,7 @@ export function QualityGatePage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        {reviewResult.qualityCategories.map((category) => (
+        {qualityCategories.map((category) => (
           <QualityCategoryCard key={category.id} category={category} />
         ))}
       </div>

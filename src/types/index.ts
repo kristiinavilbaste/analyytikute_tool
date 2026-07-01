@@ -36,6 +36,7 @@ export interface CriticalQuestion {
 export interface QualityCategory {
   id: string;
   name: string;
+  /** Category score on a 0–10 scale (not 0–100). */
   score: number;
   rationale: string;
   mainGap: string;
@@ -76,8 +77,28 @@ export interface FigmaPromptResult {
   prompt: string;
 }
 
+export type FileExtractionStatus = 'pending' | 'extracting' | 'ready' | 'failed';
+
+export interface UploadedAnalysisFile {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  status: FileExtractionStatus;
+  error?: string;
+  extractedText?: string;
+}
+
+export interface FileExtractionResult {
+  fileName: string;
+  text: string;
+  error?: string;
+}
+
 export interface AppState {
   analysisInput: string;
+  extractedText: string;
+  uploadedFiles: UploadedAnalysisFile[];
   reviewResult: ReviewResult | null;
   handoffPack: HandoffPack | null;
   figmaPrompt: string;

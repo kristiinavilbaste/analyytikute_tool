@@ -7,6 +7,7 @@ import type { HandoffBadge } from '../components/HandoffSection';
 import { CopyButton } from '../components/CopyButton';
 import { PageHeader } from '../components/PageHeader';
 import { handoffToMarkdown } from '../utils/handoffToMarkdown';
+import { AiErrorPanel, AiLoadingPanel } from '../components/AiStatusPanel';
 
 const SECTION_BADGES: Record<string, HandoffBadge[]> = {
   'Feature Summary': ['ai-assumption'],
@@ -26,13 +27,20 @@ const SECTION_BADGES: Record<string, HandoffBadge[]> = {
 };
 
 export function HandoffPage() {
-  const { handoffPack, reviewResult, generateHandoff, isHandoffLoading } = useApp();
+  const {
+    handoffPack,
+    reviewResult,
+    generateHandoff,
+    generateHandoffWithMock,
+    isHandoffLoading,
+    handoffError,
+  } = useApp();
 
   useEffect(() => {
-    if (reviewResult && !handoffPack && !isHandoffLoading) {
+    if (reviewResult && !handoffPack && !isHandoffLoading && !handoffError) {
       generateHandoff();
     }
-  }, [reviewResult, handoffPack, isHandoffLoading, generateHandoff]);
+  }, [reviewResult, handoffPack, isHandoffLoading, handoffError, generateHandoff]);
 
   if (!reviewResult) {
     return (
@@ -40,16 +48,28 @@ export function HandoffPage() {
     );
   }
 
-  if (!handoffPack) {
+  if (handoffError && !handoffPack) {
     return (
-      <div className="flex flex-col items-center justify-center py-20">
-        <svg className="h-8 w-8 animate-spin text-ng-red" viewBox="0 0 24 24" fill="none">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-        </svg>
-        <p className="mt-4 text-sm text-ng-muted">Generating handoff pack...</p>
+      <div className="mx-auto max-w-2xl space-y-6">
+        <PageHeader
+          title="Developer Handoff Pack"
+          subtitle="Structured refinement-ready input for the development team"
+          align="left"
+        />
+        <AiErrorPanel
+          message={handoffError}
+          onUseMock={generateHandoffWithMock}
+          isLoading={isHandoffLoading}
+        />
+        <Link to="/review" className="btn-neutral inline-flex">
+          Back to Review Overview
+        </Link>
       </div>
     );
+  }
+
+  if (!handoffPack) {
+    return <AiLoadingPanel message="Generating Developer Handoff Pack…" />;
   }
 
   return (

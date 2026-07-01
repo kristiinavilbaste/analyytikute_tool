@@ -4,15 +4,23 @@ import { useApp } from '../context/AppContext';
 import { EmptyState } from '../components/EmptyState';
 import { CopyButton } from '../components/CopyButton';
 import { PageHeader } from '../components/PageHeader';
+import { AiErrorPanel, AiLoadingPanel } from '../components/AiStatusPanel';
 
 export function FigmaPromptPage() {
-  const { figmaPrompt, reviewResult, generateFigma, isFigmaPromptLoading } = useApp();
+  const {
+    figmaPrompt,
+    reviewResult,
+    generateFigma,
+    generateFigmaWithMock,
+    isFigmaPromptLoading,
+    figmaError,
+  } = useApp();
 
   useEffect(() => {
-    if (reviewResult && !figmaPrompt && !isFigmaPromptLoading) {
+    if (reviewResult && !figmaPrompt && !isFigmaPromptLoading && !figmaError) {
       generateFigma();
     }
-  }, [reviewResult, figmaPrompt, isFigmaPromptLoading, generateFigma]);
+  }, [reviewResult, figmaPrompt, isFigmaPromptLoading, figmaError, generateFigma]);
 
   if (!reviewResult) {
     return (
@@ -20,16 +28,28 @@ export function FigmaPromptPage() {
     );
   }
 
-  if (!figmaPrompt) {
+  if (figmaError && !figmaPrompt) {
     return (
-      <div className="flex flex-col items-center justify-center py-20">
-        <svg className="h-8 w-8 animate-spin text-ng-red" viewBox="0 0 24 24" fill="none">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-        </svg>
-        <p className="mt-4 text-sm text-ng-muted">Generating Figma prompt...</p>
+      <div className="mx-auto max-w-2xl space-y-6">
+        <PageHeader
+          title="Figma Prompt"
+          subtitle="Use this prompt in Figma Make or another AI design tool to generate a first prototype."
+          align="left"
+        />
+        <AiErrorPanel
+          message={figmaError}
+          onUseMock={generateFigmaWithMock}
+          isLoading={isFigmaPromptLoading}
+        />
+        <Link to="/review" className="btn-neutral inline-flex">
+          Back to Review Overview
+        </Link>
       </div>
     );
+  }
+
+  if (!figmaPrompt) {
+    return <AiLoadingPanel message="Generating Figma Prompt…" />;
   }
 
   return (

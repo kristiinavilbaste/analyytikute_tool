@@ -4,42 +4,58 @@ import {
   generateHandoffPack as mockGenerateHandoffPack,
   generateFigmaPrompt as mockGenerateFigmaPrompt,
 } from './mockReviewService';
+import {
+  runReviewBoardWithAI,
+  generateHandoffPackWithAI,
+  generateFigmaPromptWithAI,
+  isUsingMockAi,
+} from './aiReviewService';
 
 /**
  * Review service facade.
- *
- * Swap the implementation here when adding OpenAI:
- *   - import { openaiRunReviewBoard, openaiGenerateHandoffPack } from './openaiReviewService';
- *   - export const runReviewBoard = openaiRunReviewBoard;
- *
- * Components import from this file only, never from mockReviewService directly.
+ * Components import from this file only — never from mockReviewService or aiReviewService directly.
  */
 
-const USE_MOCK = true;
-
-export async function runReviewBoard(input: string): Promise<ReviewResult> {
-  if (USE_MOCK) {
-    return mockRunReviewBoard(input);
-  }
-  // Future: return openaiRunReviewBoard(input);
-  throw new Error('OpenAI integration not yet configured');
+export interface ReviewServiceOptions {
+  forceMock?: boolean;
 }
 
-export async function generateHandoffPack(input: string): Promise<HandoffPack> {
-  if (USE_MOCK) {
+export async function runReviewBoard(
+  input: string,
+  options?: ReviewServiceOptions,
+): Promise<ReviewResult> {
+  if (isUsingMockAi() || options?.forceMock) {
+    return mockRunReviewBoard(input);
+  }
+  return runReviewBoardWithAI(input);
+}
+
+export async function generateHandoffPack(
+  input: string,
+  reviewResult?: ReviewResult,
+  options?: ReviewServiceOptions,
+): Promise<HandoffPack> {
+  if (isUsingMockAi() || options?.forceMock) {
     return mockGenerateHandoffPack(input);
   }
-  // Future: return openaiGenerateHandoffPack(input);
-  throw new Error('OpenAI integration not yet configured');
+  if (!reviewResult) {
+    throw new Error('Review result is required to generate an AI handoff pack.');
+  }
+  return generateHandoffPackWithAI(input, reviewResult);
 }
 
 export async function generateFigmaPrompt(
   input: string,
   reviewResult?: ReviewResult,
+  options?: ReviewServiceOptions,
 ): Promise<string> {
-  if (USE_MOCK) {
+  if (isUsingMockAi() || options?.forceMock) {
     return mockGenerateFigmaPrompt(input, reviewResult);
   }
-  // Future: return openaiGenerateFigmaPrompt(input, reviewResult);
-  throw new Error('OpenAI integration not yet configured');
+  if (!reviewResult) {
+    throw new Error('Review result is required to generate an AI Figma prompt.');
+  }
+  return generateFigmaPromptWithAI(input, reviewResult);
 }
+
+export { isUsingMockAi };
