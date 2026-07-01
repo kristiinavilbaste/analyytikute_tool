@@ -1,11 +1,50 @@
 import type { Handler } from '@netlify/functions';
+import OpenAI from 'openai';
 import { ApiError, getErrorMessage, getErrorStatusCode } from './_shared/apiErrors';
 import {
-  REVIEW_BOARD_SYSTEM_PROMPT,
-  buildReviewBoardUserPrompt,
-} from './_shared/prompts/reviewBoardPrompt';
-import { createJsonCompletion, getOpenAiModel, parseJsonResponse } from './_shared/openaiHelpers';
-import { normalizeReviewResult } from './_shared/normalizeResponses';
+  mapCompactReviewToResult,
+  type CompactReviewResponse,
+} from './_shared/compactReviewMapper';
+
+const TIMEOUT_MS = 20_000;
+const MAX_OUTPUT_TOKENS = 1200;
+const DEFAULT_MODEL = 'gpt-4.1-mini';
+
+const SYSTEM_PROMPT =
+  'You are an expert business/system analysis reviewer. Return valid compact JSON only. No markdown. Keep every description to one short sentence.';
+
+function buildUserPrompt(analysisInput: string): string {
+  const trimmedInput =
+    analysisInput.length > 10_000
+      ? `${analysisInput.slice(0, 10_000)}\n\n[Input truncated for review.]`
+      : analysisInput;
+
+  return `Review the provided analysis and return compact JSON only.
+
+Return ONLY this JSON structure:
+{
+  "qualityScore": number,
+  "readinessStatus": string,
+  "executiveSummary": string,
+  "issues": [
+    { "title": string, "severity": "High" | "Medium" | "Low", "description": string }
+  ],
+  "risks": [
+    { "title": string, "severity": "High" | "Medium" | "Low", "description": string }
+  ],
+  "hiddenAssumptions": string[],
+  "questions": string[],
+  "recommendations": string[]
+}
+
+Maximum items: issues 5, risks 5, hiddenAssumptions 5, questions 5, recommendations 5.
+qualityScore is 0-100. readinessStatus must be one of: Not ready, Needs clarification, Ready for refinement, Ready for development.
+
+ANALYSIS:
+---
+${trimmedInput}
+---`;
+}
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -20,6 +59,39 @@ function jsonResponse(statusCode: number, body: unknown) {
     headers: CORS_HEADERS,
     body: JSON.stringify(body),
   };
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error('AI request timed out before OpenAI returned a response.'));
+    }, timeoutMs);
+
+    promise
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
+}
+
+function parseCompactReviewJson(content: string): CompactReviewResponse {
+  const trimmed = content.trim();
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)```$/i);
+  const jsonText = fenced ? fenced[1].trim() : trimmed;
+
+  try {
+    return JSON.parse(jsonText) as CompactReviewResponse;
+  } catch {
+    throw new ApiError(
+      `AI response could not be parsed. Raw response (first 500 chars): ${content.slice(0, 500)}`,
+      500,
+    );
+  }
 }
 
 export const handler: Handler = async (event) => {
@@ -47,9 +119,11 @@ export const handler: Handler = async (event) => {
     return jsonResponse(405, { error: 'Method not allowed.' });
   }
 
+  const model = process.env.OPENAI_MODEL || DEFAULT_MODEL;
+
   try {
     console.log('hasOpenAIKey:', Boolean(process.env.OPENAI_API_KEY));
-    console.log('selected model:', getOpenAiModel());
+    console.log('selected model:', model);
 
     const body = event.body ? (JSON.parse(event.body) as Record<string, unknown>) : {};
     console.log('body parsed');
@@ -61,16 +135,37 @@ export const handler: Handler = async (event) => {
       throw new ApiError('analysisInput is required.', 400);
     }
 
+    if (!process.env.OPENAI_API_KEY) {
+      throw new ApiError('OpenAI API key is not configured on the server.', 500);
+    }
+
+    const client = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+      timeout: TIMEOUT_MS,
+    });
+
     console.log('calling OpenAI');
-    const content = await createJsonCompletion(
-      REVIEW_BOARD_SYSTEM_PROMPT,
-      buildReviewBoardUserPrompt(analysisInput),
-      { maxTokens: 1200, timeoutMs: 20_000 },
+    const response = await withTimeout(
+      client.chat.completions.create({
+        model,
+        max_tokens: MAX_OUTPUT_TOKENS,
+        temperature: 0.2,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: buildUserPrompt(analysisInput) },
+        ],
+      }),
+      TIMEOUT_MS,
     );
     console.log('OpenAI response received');
 
-    const parsed = parseJsonResponse<Record<string, unknown>>(content);
-    const result = normalizeReviewResult(parsed);
+    const content = response.choices[0]?.message?.content?.trim() ?? '';
+    if (!content) {
+      throw new ApiError('OpenAI returned an empty response.', 500);
+    }
+
+    const parsed = parseCompactReviewJson(content);
+    const result = mapCompactReviewToResult(parsed);
 
     console.log('returning response');
     return jsonResponse(200, result);
