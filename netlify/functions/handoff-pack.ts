@@ -1,70 +1,30 @@
 import type { Handler } from '@netlify/functions';
 import OpenAI from 'openai';
-import { ApiError, getErrorMessage, getErrorStatusCode } from './_shared/apiErrors';
-import {
-  mapCompactHandoffToPack,
-  type CompactHandoffResponse,
-} from './_shared/compactHandoffMapper';
+import { getErrorMessage } from './_shared/apiErrors';
 
-const TIMEOUT_MS = 20_000;
-const MAX_OUTPUT_TOKENS = 1200;
+const TIMEOUT_MS = 25_000;
+const MAX_OUTPUT_TOKENS = 500;
+const MAX_INPUT_CHARS = 4000;
 const DEFAULT_MODEL = 'gpt-4.1-mini';
 
 const SYSTEM_PROMPT =
-  'You are an expert business/system analyst preparing a developer handoff pack. Return valid compact JSON only. No markdown. Keep all text short and demo-friendly.';
+  'You are a senior business/system analyst. Return valid JSON only.';
 
-function buildUserPrompt(analysisInput: string, reviewResult: unknown): string {
-  const trimmedInput =
-    analysisInput.length > 8_000
-      ? `${analysisInput.slice(0, 8_000)}\n\n[Input truncated for handoff.]`
-      : analysisInput;
+const PARSE_FALLBACK = {
+  handoffSummary:
+    'AI returned a non-JSON response, but the handoff pack could not be parsed.',
+  developerScope: [] as string[],
+  userStories: [] as Array<{ title: string; acceptanceCriteria: string[] }>,
+  openQuestions: [] as string[],
+  technicalRisks: [] as string[],
+};
 
-  const reviewContext =
-    reviewResult && typeof reviewResult === 'object'
-      ? JSON.stringify(reviewResult).slice(0, 4_000)
-      : '';
-
-  return `Create a compact developer handoff pack from the provided analysis. Return valid compact JSON only.
-
-Return ONLY this JSON structure:
-{
-  "handoffSummary": string,
-  "scope": string[],
-  "outOfScope": string[],
-  "userStories": [
-    {
-      "title": string,
-      "description": string,
-      "acceptanceCriteria": string[]
-    }
-  ],
-  "apiAndIntegrationNotes": string[],
-  "dataNotes": string[],
-  "openQuestions": string[],
-  "developerRisks": string[],
-  "testingNotes": string[]
-}
-
-Limits (do not exceed):
-- scope: 5
-- outOfScope: 5
-- userStories: 5
-- acceptanceCriteria per story: 5
-- apiAndIntegrationNotes: 5
-- dataNotes: 5
-- openQuestions: 5
-- developerRisks: 5
-- testingNotes: 5
-
-ANALYSIS INPUT:
----
-${trimmedInput}
----
-
-REVIEW CONTEXT (if useful):
----
-${reviewContext || 'Not provided.'}
----`;
+interface CompactHandoff {
+  handoffSummary: string;
+  developerScope: string[];
+  userStories: Array<{ title: string; acceptanceCriteria: string[] }>;
+  openQuestions: string[];
+  technicalRisks: string[];
 }
 
 const CORS_HEADERS = {
@@ -85,7 +45,7 @@ function jsonResponse(statusCode: number, body: unknown) {
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
-      reject(new Error('AI request timed out before OpenAI returned a response.'));
+      reject(new Error('Handoff pack request timed out after 25 seconds.'));
     }, timeoutMs);
 
     promise
@@ -100,24 +60,128 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   });
 }
 
-function parseCompactHandoffJson(content: string): CompactHandoffResponse {
+function extractAnalysisText(body: Record<string, unknown>): string {
+  const candidates = [
+    body.analysisInput,
+    body.analysisText,
+    body.text,
+    body.analysis,
+    body.input,
+  ];
+
+  for (const candidate of candidates) {
+    const value = String(candidate ?? '').trim();
+    if (value) return value;
+  }
+
+  return '';
+}
+
+function buildUserPrompt(analysisText: string): string {
+  return `Create a very concise developer handoff pack from this analysis.
+
+Return this JSON only:
+{
+  "handoffSummary": "one sentence",
+  "developerScope": ["max 3 short items"],
+  "userStories": [
+    {
+      "title": "short title",
+      "acceptanceCriteria": ["max 3 short criteria"]
+    }
+  ],
+  "openQuestions": ["max 3 short questions"],
+  "technicalRisks": ["max 3 short risks"]
+}
+
+Analysis:
+${analysisText}`;
+}
+
+function parseCompactHandoff(content: string): CompactHandoff {
   const trimmed = content.trim();
   const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)```$/i);
   const jsonText = fenced ? fenced[1].trim() : trimmed;
 
   try {
-    return JSON.parse(jsonText) as CompactHandoffResponse;
+    const parsed = JSON.parse(jsonText) as Partial<CompactHandoff>;
+    return {
+      handoffSummary: String(parsed.handoffSummary ?? PARSE_FALLBACK.handoffSummary),
+      developerScope: Array.isArray(parsed.developerScope)
+        ? parsed.developerScope.map(String).slice(0, 3)
+        : [],
+      userStories: Array.isArray(parsed.userStories)
+        ? parsed.userStories.slice(0, 3).map((story) => ({
+            title: String(story?.title ?? 'User story'),
+            acceptanceCriteria: Array.isArray(story?.acceptanceCriteria)
+              ? story.acceptanceCriteria.map(String).slice(0, 3)
+              : [],
+          }))
+        : [],
+      openQuestions: Array.isArray(parsed.openQuestions)
+        ? parsed.openQuestions.map(String).slice(0, 3)
+        : [],
+      technicalRisks: Array.isArray(parsed.technicalRisks)
+        ? parsed.technicalRisks.map(String).slice(0, 3)
+        : [],
+    };
   } catch {
-    throw new ApiError(
-      `AI response could not be parsed. Raw response (first 500 chars): ${content.slice(0, 500)}`,
-      500,
-    );
+    return { ...PARSE_FALLBACK };
   }
+}
+
+function mapToHandoffPack(compact: CompactHandoff) {
+  const userStories = compact.userStories.map((story) => {
+    if (story.acceptanceCriteria.length > 0) {
+      return `${story.title} (Acceptance: ${story.acceptanceCriteria.join('; ')})`;
+    }
+    return story.title;
+  });
+
+  const acceptanceCriteria = compact.userStories.flatMap((story) => story.acceptanceCriteria);
+
+  return {
+    featureSummary: compact.handoffSummary,
+    businessGoal: compact.handoffSummary,
+    scope: compact.developerScope,
+    outOfScope: [],
+    userRoles: ['Confirm user roles during refinement.'],
+    functionalRequirements:
+      compact.userStories.length > 0
+        ? compact.userStories.map((s) => s.title)
+        : ['Define functional requirements during refinement.'],
+    nonFunctionalRequirements: ['Define non-functional requirements during refinement.'],
+    businessRules: ['Document business rules during refinement.'],
+    dataAndIntegrations: ['Confirm data and integrations during refinement.'],
+    userStories: userStories.length > 0 ? userStories : ['Draft user stories during refinement.'],
+    acceptanceCriteria:
+      acceptanceCriteria.length > 0
+        ? acceptanceCriteria
+        : ['Add acceptance criteria during refinement.'],
+    edgeCases: ['Identify edge cases during refinement.'],
+    risks:
+      compact.technicalRisks.length > 0
+        ? compact.technicalRisks
+        : ['Review technical risks with the delivery team.'],
+    openQuestions:
+      compact.openQuestions.length > 0
+        ? compact.openQuestions
+        : ['Confirm open questions with stakeholders.'],
+    technicalNotes:
+      compact.technicalRisks.length > 0
+        ? compact.technicalRisks
+        : ['Add technical notes during solution design.'],
+    recommendationForRefinement:
+      compact.openQuestions[0] ??
+      'Complete a refinement workshop before development handoff.',
+  };
 }
 
 export const handler: Handler = async (event) => {
   console.log('handoff-pack started');
   console.log('request method:', event.httpMethod);
+
+  const model = process.env.OPENAI_MODEL || DEFAULT_MODEL;
 
   if (event.httpMethod === 'OPTIONS') {
     return {
@@ -132,7 +196,7 @@ export const handler: Handler = async (event) => {
       ok: true,
       function: 'handoff-pack',
       hasOpenAIKey: Boolean(process.env.OPENAI_API_KEY),
-      model: process.env.OPENAI_MODEL || null,
+      model,
     });
   }
 
@@ -140,29 +204,34 @@ export const handler: Handler = async (event) => {
     return jsonResponse(405, { error: 'Method not allowed.' });
   }
 
-  const model = process.env.OPENAI_MODEL || DEFAULT_MODEL;
+  console.log('hasOpenAIKey:', Boolean(process.env.OPENAI_API_KEY));
+  console.log('selected model:', model);
 
   try {
-    console.log('hasOpenAIKey:', Boolean(process.env.OPENAI_API_KEY));
-    console.log('selected model:', model);
-
     const body = event.body ? (JSON.parse(event.body) as Record<string, unknown>) : {};
     console.log('body parsed');
 
-    const analysisInput = String(body.analysisInput ?? '').trim();
-    const reviewResult = body.reviewResult;
-    console.log('input text length:', analysisInput.length);
+    const analysisText = extractAnalysisText(body);
+    console.log('input text length:', analysisText.length);
 
-    if (!analysisInput) {
-      throw new ApiError('analysisInput is required.', 400);
-    }
-    if (!reviewResult || typeof reviewResult !== 'object') {
-      throw new ApiError('reviewResult is required.', 400);
+    if (!analysisText) {
+      return jsonResponse(400, {
+        error:
+          'Analysis text is required. Provide analysisInput, analysisText, text, analysis, or input.',
+      });
     }
 
     if (!process.env.OPENAI_API_KEY) {
-      throw new ApiError('OpenAI API key is not configured on the server.', 500);
+      return jsonResponse(500, {
+        error: 'OpenAI API key is not configured on the server.',
+      });
     }
+
+    const truncatedText =
+      analysisText.length > MAX_INPUT_CHARS
+        ? `${analysisText.slice(0, MAX_INPUT_CHARS)}\n[Truncated.]`
+        : analysisText;
+    console.log('truncated input length:', truncatedText.length);
 
     const client = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
@@ -173,24 +242,22 @@ export const handler: Handler = async (event) => {
     const response = await withTimeout(
       client.chat.completions.create({
         model,
-        max_tokens: MAX_OUTPUT_TOKENS,
         temperature: 0.2,
+        max_tokens: MAX_OUTPUT_TOKENS,
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: buildUserPrompt(analysisInput, reviewResult) },
+          { role: 'user', content: buildUserPrompt(truncatedText) },
         ],
       }),
       TIMEOUT_MS,
     );
     console.log('OpenAI response received');
 
-    const content = response.choices[0]?.message?.content?.trim() ?? '';
-    if (!content) {
-      throw new ApiError('OpenAI returned an empty response.', 500);
-    }
+    const output = response.choices[0]?.message?.content?.trim() ?? '';
+    console.log('raw output first 200 chars:', output.slice(0, 200));
 
-    const parsed = parseCompactHandoffJson(content);
-    const result = mapCompactHandoffToPack(parsed);
+    const compact = output ? parseCompactHandoff(output) : { ...PARSE_FALLBACK };
+    const result = mapToHandoffPack(compact);
 
     console.log('returning response');
     return jsonResponse(200, result);
@@ -204,8 +271,9 @@ export const handler: Handler = async (event) => {
       error instanceof Error ? error.stack : 'no stack',
     );
 
-    return jsonResponse(getErrorStatusCode(error), {
-      error: getErrorMessage(error),
-    });
+    const message = getErrorMessage(error);
+    const statusCode = message.toLowerCase().includes('timed out') ? 504 : 500;
+
+    return jsonResponse(statusCode, { error: message });
   }
 };
