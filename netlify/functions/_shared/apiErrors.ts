@@ -1,3 +1,5 @@
+const TIMEOUT_ERROR_MESSAGE = 'AI request timed out before OpenAI returned a response.';
+
 export class ApiError extends Error {
   statusCode: number;
 
@@ -31,6 +33,10 @@ export function mapApiError(error: unknown): ApiError {
       error.message.includes(PARSE_ERROR_MESSAGE)
     ) {
       return new ApiError(PARSE_ERROR_MESSAGE, 500);
+    }
+
+    if (error.message.includes(TIMEOUT_ERROR_MESSAGE)) {
+      return new ApiError(TIMEOUT_ERROR_MESSAGE, 504);
     }
   }
 
