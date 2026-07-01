@@ -21,6 +21,62 @@ export const QUALITY_GATE_CATEGORIES: QualityGateCategoryDefinition[] = [
 
 export const QUALITY_GATE_CATEGORY_NAMES = QUALITY_GATE_CATEGORIES.map((c) => c.name);
 
+const CATEGORY_SPECIFIC_FALLBACKS: Record<
+  string,
+  { rationale: string; mainGap: string; recommendation: string }
+> = {
+  'Business Need Clarity': {
+    rationale: 'Business need clarity was not evaluated separately in the AI response.',
+    mainGap: 'Business problem, goals or success criteria need clearer definition.',
+    recommendation: 'Document the business problem, outcomes and measurable success criteria.',
+  },
+  'Scope Clarity': {
+    rationale: 'Scope clarity was not evaluated separately in the AI response.',
+    mainGap: 'In-scope and out-of-scope boundaries are not defined clearly enough.',
+    recommendation: 'Publish an explicit scope list with phase boundaries.',
+  },
+  'User Roles and Permissions': {
+    rationale: 'User roles and permissions were not evaluated separately in the AI response.',
+    mainGap: 'Actors, roles, permissions or access rules are missing or unclear.',
+    recommendation: 'Define a role and permission matrix for all user types.',
+  },
+  'Functional Requirements': {
+    rationale: 'Functional requirements were not evaluated separately in the AI response.',
+    mainGap: 'User flows, features or expected behavior are incomplete.',
+    recommendation: 'Document numbered functional requirements linked to user goals.',
+  },
+  'Non-Functional Requirements': {
+    rationale: 'Non-functional requirements were not evaluated separately in the AI response.',
+    mainGap: 'Performance, security, audit, availability or usability targets are missing.',
+    recommendation: 'Add measurable non-functional requirements with acceptance thresholds.',
+  },
+  'Business Rules': {
+    rationale: 'Business rules were not evaluated separately in the AI response.',
+    mainGap: 'Rules, statuses, validations or process logic are not documented.',
+    recommendation: 'Capture business rules including status transitions and validations.',
+  },
+  'Data and Integrations': {
+    rationale: 'Data and integrations were not evaluated separately in the AI response.',
+    mainGap: 'Data entities, source systems, APIs or integration contracts are unclear.',
+    recommendation: 'Produce a data model and integration specification.',
+  },
+  'Acceptance Criteria Testability': {
+    rationale: 'Acceptance criteria testability was not evaluated separately in the AI response.',
+    mainGap: 'Requirements are not written in a testable form.',
+    recommendation: 'Rewrite acceptance criteria as Given/When/Then with expected results.',
+  },
+  'Risks and Assumptions': {
+    rationale: 'Risks and assumptions were not evaluated separately in the AI response.',
+    mainGap: 'Explicit risks, hidden assumptions or mitigation plans are missing.',
+    recommendation: 'Maintain a risk and assumption register with owners and mitigations.',
+  },
+  'Development Handoff Readiness': {
+    rationale: 'Development handoff readiness was not evaluated separately in the AI response.',
+    mainGap: 'Developers lack enough detail to begin refinement or build confidently.',
+    recommendation: 'Complete a refinement workshop and close open decisions before handoff.',
+  },
+};
+
 const CATEGORY_ALIASES: Record<string, string[]> = {
   'Business Need Clarity': ['business need clarity', 'business need'],
   'Scope Clarity': ['scope clarity'],
@@ -85,20 +141,70 @@ function categoryNamesMatch(canonicalName: string, candidateName: string): boole
   );
 }
 
-const FALLBACK_RATIONALE = 'This category was not evaluated in the AI response.';
-const FALLBACK_MAIN_GAP = 'Missing evaluation.';
-const FALLBACK_RECOMMENDATION =
-  'Re-run the review or manually assess this category.';
+function getCategoryFallback(name: string) {
+  return (
+    CATEGORY_SPECIFIC_FALLBACKS[name] ?? {
+      rationale: 'This category was not evaluated in the AI response.',
+      mainGap: 'Missing category-specific evaluation.',
+      recommendation: 'Re-run the review or manually assess this category.',
+    }
+  );
+}
+
+function normalizeField(value: unknown, fallback: string): string {
+  const text = typeof value === 'string' ? value.trim() : '';
+  return text || fallback;
+}
+
+function deduplicateCategoryContent(categories: QualityCategory[]): QualityCategory[] {
+  const seenRationale = new Set<string>();
+  const seenMainGap = new Set<string>();
+  const seenRecommendation = new Set<string>();
+
+  return categories.map((category) => {
+    const fallback = getCategoryFallback(category.name);
+    let rationale = category.rationale.trim();
+    let mainGap = category.mainGap.trim();
+    let recommendation = category.recommendation.trim();
+
+    const rationaleKey = normalizeCategoryName(rationale);
+    if (!rationale || seenRationale.has(rationaleKey)) {
+      rationale = fallback.rationale;
+    }
+    seenRationale.add(normalizeCategoryName(rationale));
+
+    const mainGapKey = normalizeCategoryName(mainGap);
+    if (!mainGap || seenMainGap.has(mainGapKey)) {
+      mainGap = fallback.mainGap;
+    }
+    seenMainGap.add(normalizeCategoryName(mainGap));
+
+    const recommendationKey = normalizeCategoryName(recommendation);
+    if (!recommendation || seenRecommendation.has(recommendationKey)) {
+      recommendation = fallback.recommendation;
+    }
+    seenRecommendation.add(normalizeCategoryName(recommendation));
+
+    return {
+      ...category,
+      rationale,
+      mainGap,
+      recommendation,
+    };
+  });
+}
 
 /** Guarantee exactly 10 Quality Gate categories in canonical order. */
 export function normalizeQualityCategories(categories: QualityCategory[]): QualityCategory[] {
   const usedIndices = new Set<number>();
 
-  return QUALITY_GATE_CATEGORIES.map((canonical) => {
+  const mapped = QUALITY_GATE_CATEGORIES.map((canonical) => {
     const matchIndex = categories.findIndex((item, itemIndex) => {
       if (usedIndices.has(itemIndex)) return false;
       return categoryNamesMatch(canonical.name, item.name);
     });
+
+    const fallback = getCategoryFallback(canonical.name);
 
     if (matchIndex >= 0) {
       usedIndices.add(matchIndex);
@@ -108,9 +214,9 @@ export function normalizeQualityCategories(categories: QualityCategory[]): Quali
         id: item.id?.trim() || canonical.id,
         name: canonical.name,
         score: normalizeCategoryScore(item.score),
-        rationale: item.rationale?.trim() || FALLBACK_RATIONALE,
-        mainGap: item.mainGap?.trim() || FALLBACK_MAIN_GAP,
-        recommendation: item.recommendation?.trim() || FALLBACK_RECOMMENDATION,
+        rationale: normalizeField(item.rationale, fallback.rationale),
+        mainGap: normalizeField(item.mainGap, fallback.mainGap),
+        recommendation: normalizeField(item.recommendation, fallback.recommendation),
       };
     }
 
@@ -118,9 +224,11 @@ export function normalizeQualityCategories(categories: QualityCategory[]): Quali
       id: canonical.id,
       name: canonical.name,
       score: 0,
-      rationale: FALLBACK_RATIONALE,
-      mainGap: FALLBACK_MAIN_GAP,
-      recommendation: FALLBACK_RECOMMENDATION,
+      rationale: fallback.rationale,
+      mainGap: fallback.mainGap,
+      recommendation: fallback.recommendation,
     };
   });
+
+  return deduplicateCategoryContent(mapped);
 }

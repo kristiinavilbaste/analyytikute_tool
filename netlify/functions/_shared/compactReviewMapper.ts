@@ -1,4 +1,7 @@
-import { QUALITY_GATE_CATEGORIES } from './constants/qualityGateCategories';
+import {
+  ensureQualityCategories,
+  type RawQualityCategoryItem,
+} from './constants/qualityGateCategories';
 
 type Severity = 'Low' | 'Medium' | 'High';
 
@@ -20,10 +23,20 @@ interface CompactRisk {
   description?: string;
 }
 
+interface CompactQualityCategory {
+  category?: string;
+  name?: string;
+  score?: number;
+  rationale?: string;
+  mainGap?: string;
+  recommendation?: string;
+}
+
 export interface CompactReviewResponse {
   qualityScore?: number;
   readinessStatus?: string;
   executiveSummary?: string;
+  qualityCategories?: CompactQualityCategory[];
   issues?: CompactIssue[];
   risks?: CompactRisk[];
   hiddenAssumptions?: string[];
@@ -64,9 +77,17 @@ function clampOverallScore(score: unknown): number {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
 
-function categoryScoreFromOverall(qualityScore: number): number {
-  const normalized = qualityScore / 10;
-  return Math.max(0, Math.min(10, Math.round(normalized * 10) / 10));
+function normalizeCategoryScore(score: unknown): number {
+  const value = Number(score);
+  if (Number.isNaN(value)) return 0;
+
+  let normalized = value;
+  if (normalized > 10 && normalized <= 100) {
+    normalized = normalized / 10;
+  }
+
+  normalized = Math.max(0, Math.min(10, normalized));
+  return Math.round(normalized * 10) / 10;
 }
 
 function asString(value: unknown, fallback = ''): string {
@@ -76,6 +97,20 @@ function asString(value: unknown, fallback = ''): string {
 function asStringArray(value: unknown, max = 5): string[] {
   if (!Array.isArray(value)) return [];
   return value.map((item) => asString(item)).filter(Boolean).slice(0, max);
+}
+
+function toRawQualityCategories(
+  items: CompactQualityCategory[] | undefined,
+): RawQualityCategoryItem[] {
+  return (items ?? []).map((item) => ({
+    id: undefined,
+    name: item.name ?? item.category,
+    category: item.category ?? item.name,
+    score: item.score,
+    rationale: item.rationale,
+    mainGap: item.mainGap,
+    recommendation: item.recommendation,
+  }));
 }
 
 export function mapCompactReviewToResult(compact: CompactReviewResponse) {
@@ -108,19 +143,10 @@ export function mapCompactReviewToResult(compact: CompactReviewResponse) {
     questionToAsk: questions[index] ?? 'What is the mitigation plan?',
   }));
 
-  const categoryScore = categoryScoreFromOverall(qualityScore);
-  const qualityCategories = QUALITY_GATE_CATEGORIES.map((category, index) => ({
-    id: category.id,
-    name: category.name,
-    score: categoryScore,
-    rationale: executiveSummary,
-    mainGap:
-      issues[index % Math.max(issues.length, 1)]?.description ??
-      'See review findings for details.',
-    recommendation:
-      recommendations[index % Math.max(recommendations.length, 1)] ??
-      'Continue analysis refinement.',
-  }));
+  const qualityCategories = ensureQualityCategories(
+    toRawQualityCategories(compact.qualityCategories),
+    normalizeCategoryScore,
+  );
 
   return {
     qualityScore,

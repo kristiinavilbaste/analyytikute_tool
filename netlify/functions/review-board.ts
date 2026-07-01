@@ -5,13 +5,14 @@ import {
   mapCompactReviewToResult,
   type CompactReviewResponse,
 } from './_shared/compactReviewMapper';
+import { buildQualityCategoryPromptSection } from './_shared/constants/qualityGateCategories';
 
 const TIMEOUT_MS = 20_000;
-const MAX_OUTPUT_TOKENS = 1200;
+const MAX_OUTPUT_TOKENS = 1800;
 const DEFAULT_MODEL = 'gpt-4.1-mini';
 
 const SYSTEM_PROMPT =
-  'You are an expert business/system analysis reviewer. Return valid compact JSON only. No markdown. Keep every description to one short sentence.';
+  'You are an expert business/system analysis reviewer. Return valid compact JSON only. No markdown. Each quality category must have unique rationale, mainGap and recommendation. Do not reuse the same text across categories.';
 
 function buildUserPrompt(analysisInput: string): string {
   const trimmedInput =
@@ -26,6 +27,15 @@ Return ONLY this JSON structure:
   "qualityScore": number,
   "readinessStatus": string,
   "executiveSummary": string,
+  "qualityCategories": [
+    {
+      "category": string,
+      "score": number,
+      "rationale": string,
+      "mainGap": string,
+      "recommendation": string
+    }
+  ],
   "issues": [
     { "title": string, "severity": "High" | "Medium" | "Low", "description": string }
   ],
@@ -37,8 +47,16 @@ Return ONLY this JSON structure:
   "recommendations": string[]
 }
 
+qualityCategories must contain exactly 10 items, one for each category below, in this order, using the exact category names.
+Each qualityCategories[].score must be 0-10 only. qualityScore is 0-100 overall only.
+Do not reuse the same rationale, mainGap or recommendation across categories.
+Keep each category text short but specific to that category only.
+
+Required categories:
+${buildQualityCategoryPromptSection()}
+
 Maximum items: issues 5, risks 5, hiddenAssumptions 5, questions 5, recommendations 5.
-qualityScore is 0-100. readinessStatus must be one of: Not ready, Needs clarification, Ready for refinement, Ready for development.
+readinessStatus must be one of: Not ready, Needs clarification, Ready for refinement, Ready for development.
 
 ANALYSIS:
 ---

@@ -1,4 +1,4 @@
-import { QUALITY_GATE_CATEGORY_NAMES } from '../constants/qualityGateCategories.js';
+import { buildQualityCategoryPromptSection } from '../constants/qualityGateCategories.js';
 
 export const REVIEW_BOARD_SYSTEM_PROMPT = `You are Analysis Review Board — an AI-powered quality and risk review tool for experienced business and system analysts.
 
@@ -34,9 +34,12 @@ The qualityCategories array must contain exactly 10 items. Do not omit any categ
 - Do NOT return 55 for a category score — return 5.5 instead.
 - Do NOT return 45 for a category score — return 4.5 instead.
 - Category scores must be between 0 and 10 (minimum 0, maximum 10).
+- Each category must evaluate only its own topic.
+- Do NOT reuse the same rationale, mainGap or recommendation across categories.
+- Keep each category text short but specific to that category only.
 
 Required qualityCategories (exactly 10, in this order, use these exact names):
-${QUALITY_GATE_CATEGORY_NAMES.map((name, index) => `${index + 1}. ${name}`).join('\n')}
+${buildQualityCategoryPromptSection()}
 
 Return ONLY valid JSON with this exact shape:
 {
